@@ -39,6 +39,9 @@ type Manager struct {
 	// AfterConnect is called by DB.Connect after a connection is established. It is also used by any pool returned from
 	// DB.ConnectPool. If an error is returned the connection will be closed.
 	AfterConnect func(ctx context.Context, conn *pgx.Conn) error
+
+	// ResetDB is called to reset a database to pristine condition.
+	ResetDB func(ctx context.Context, conn *pgx.Conn) error
 }
 
 // Connect establishes m's connection to the database with a connection string.
@@ -131,9 +134,11 @@ func (m *Manager) AcquireDB(t testing.TB, ctx context.Context) *DB {
 				m.dbmaintConns[db.dbname] = maintConn
 			}
 
-			err = db.reset(ctx)
-			if err != nil {
-				t.Fatalf("failed to reset database: %v", err)
+			if m.ResetDB != nil {
+				err = m.ResetDB(ctx, db.m.dbmaintConns[db.dbname])
+				if err != nil {
+					t.Fatalf("failed to reset database: %v", err)
+				}
 			}
 
 			err = tx.Commit(ctx)
@@ -283,10 +288,4 @@ func (db *DB) TxConnect(t testing.TB, ctx context.Context) pgx.Tx {
 	// Purposely not rolling back transaction as it will happen implicitly when closing the connection.
 
 	return tx
-}
-
-// reset resets the database.
-func (db *DB) reset(ctx context.Context) error {
-	_, err := db.m.dbmaintConns[db.dbname].Exec(ctx, `select pgundolog.undo()`)
-	return err
 }
